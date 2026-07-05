@@ -61,14 +61,16 @@ async def run_backtest(market_id: str = "BTC-USD", lookback_days: int = 14,
     # Backtest each candle
     print(f"\nRunning backtest...\n")
     
-    for i in range(1, len(df)):
+    signal_counts = {'BUY': 0, 'SELL': 0, 'HOLD': 0}
+    
+    for i in range(20, len(df)):  # Start from candle 20 to have enough history
         try:
             timestamp = df.index[i] if hasattr(df.index[i], 'to_pydatetime') else datetime.now()
             current_close = df['Close'].iloc[i]
             current_high = df['High'].iloc[i]
             current_low = df['Low'].iloc[i]
             
-            # Use lookback window (last 20 candles for pattern detection)
+            # Use lookback window (last 100 candles for pattern detection)
             lookback_df = df.iloc[max(0, i-100):i+1]
             
             # Detect patterns
@@ -96,35 +98,44 @@ async def run_backtest(market_id: str = "BTC-USD", lookback_days: int = 14,
             
             sentiment_signal = sentiment_report['signal']
             
-            # Consensus decision
-            bullish_votes = 0
-            bearish_votes = 0
+            # Calculate signal strength
+            bullish_score = 0.0
+            bearish_score = 0.0
             
-            # Wave vote
-            if patterns and patterns[0].confidence > 0.6:
+            # Wave vote (0-1 scale)
+            if patterns and patterns[0].confidence > 0.5:
                 if patterns[0].pattern_type == "impulse":
-                    bullish_votes += 1
+                    bullish_score += patterns[0].confidence
                 else:
-                    bearish_votes += 1
+                    bearish_score += patterns[0].confidence
             
-            # Indicator vote
-            if combined_signal['strong_buy'] or combined_signal['buy']:
-                bullish_votes += 1
+            # Indicator vote (0-1 scale)
+            indicator_strength = combined_signal['confidence']
+            if combined_signal['strong_buy']:
+                bullish_score += indicator_strength
+            elif combined_signal['buy']:
+                bullish_score += indicator_strength * 0.5
             elif combined_signal['sell']:
-                bearish_votes += 1
+                bearish_score += indicator_strength
             
-            # Sentiment vote
-            if sentiment_signal['signal_type'] in ["STRONG BUY", "BUY"]:
-                bullish_votes += 1
-            elif sentiment_signal['signal_type'] in ["STRONG SELL", "SELL"]:
-                bearish_votes += 1
+            # Sentiment vote (0-1 scale)
+            if sentiment_signal['signal_type'] == "STRONG BUY":
+                bullish_score += sentiment_signal['confidence']
+            elif sentiment_signal['signal_type'] == "BUY":
+                bullish_score += sentiment_signal['confidence'] * 0.5
+            elif sentiment_signal['signal_type'] == "STRONG SELL":
+                bearish_score += sentiment_signal['confidence']
+            elif sentiment_signal['signal_type'] == "SELL":
+                bearish_score += sentiment_signal['confidence'] * 0.5
             
-            # Generate final signal
+            # Generate final signal based on weighted scores
             final_signal = "HOLD"
-            if bullish_votes >= 2:
+            if bullish_score > bearish_score + 0.3:
                 final_signal = "BUY"
-            elif bearish_votes >= 2:
+            elif bearish_score > bullish_score + 0.3:
                 final_signal = "SELL"
+            
+            signal_counts[final_signal] += 1
             
             # Execute signal
             backtester.execute_signal(i, current_close, final_signal, timestamp)
@@ -148,6 +159,12 @@ async def run_backtest(market_id: str = "BTC-USD", lookback_days: int = 14,
     
     # Close all positions at end
     backtester.close_all_positions(len(df)-1, df['Close'].iloc[-1])
+    
+    # Print signal statistics
+    print(f"\n📊 SIGNAL STATISTICS:")
+    print(f"   BUY signals:  {signal_counts['BUY']}")
+    print(f"   SELL signals: {signal_counts['SELL']}")
+    print(f"   HOLD signals: {signal_counts['HOLD']}")
     
     # Print results
     backtester.print_results()
