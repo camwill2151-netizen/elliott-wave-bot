@@ -69,7 +69,6 @@ class Backtester:
         self.current_position = None
         self.equity_curve = [initial_capital]
         self.timestamps = []
-        self.last_signal = None
     
     def execute_signal(self, index: int, price: float, signal: str, timestamp: datetime):
         """
@@ -81,20 +80,19 @@ class Backtester:
             signal: "BUY", "SELL", or "HOLD"
             timestamp: Current timestamp
         """
-        if signal == "HOLD" or signal == self.last_signal:
+        if signal == "HOLD":
             return
         
-        self.last_signal = signal
+        # Close existing position if SELL signal
+        if signal == "SELL" and self.current_position:
+            if self.current_position.signal_type == "BUY":
+                self.current_position.close(index, price, "signal")
+                self.capital += self.current_position.pnl
+                self.trades.append(self.current_position)
+                self.current_position = None
         
-        # Close existing position if opposite signal
-        if self.current_position and self.current_position.signal_type != signal:
-            self.current_position.close(index, price, "signal")
-            self.capital += self.current_position.pnl
-            self.trades.append(self.current_position)
-            self.current_position = None
-        
-        # Open new position
-        if not self.current_position and signal in ["BUY", "SELL"]:
+        # Open new position if BUY signal and no position
+        if signal == "BUY" and not self.current_position:
             position_size = (self.capital * self.position_size_percent) / price
             self.current_position = BacktestTrade(index, price, position_size, signal, timestamp)
     
@@ -208,7 +206,7 @@ class Backtester:
         results = self.get_results()
         
         print(f"""
-╔════════════════════════════════════════════════════════╗
+╔═══════════════════════════════��════════════════════════╗
 ║         ELLIOTT WAVE BOT - BACKTEST RESULTS            ║
 ╠════════════════════════════════════════════════════════╣
 ║ Initial Capital:        ${results['initial_capital']:>10,.2f}
