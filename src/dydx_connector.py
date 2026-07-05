@@ -23,14 +23,14 @@ except ImportError:
 class DydxIndexerClient:
     """Client for dYdX v4 Indexer (read-only operations)."""
     
-    def __init__(self, indexer_url: str = "https://indexer.dydx.trade/v1"):
+    def __init__(self, indexer_url: str = "https://indexer.dydx.trade"):
         """
         Initialize dYdX Indexer client.
         
         Args:
             indexer_url: Base URL for dYdX indexer (mainnet or testnet)
         """
-        self.indexer_url = indexer_url
+        self.indexer_url = indexer_url.rstrip('/')
         self.logger = logging.getLogger(__name__)
         self.session = None
     
@@ -52,7 +52,7 @@ class DydxIndexerClient:
             Dictionary of markets data
         """
         try:
-            url = f"{self.indexer_url}/perpetualMarkets"
+            url = f"{self.indexer_url}/v4/perpetualMarkets"
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
                     if response.status == 200:
@@ -78,64 +78,92 @@ class DydxIndexerClient:
             DataFrame with OHLCV data
         """
         try:
-            url = f"{self.indexer_url}/perpetualMarkets/{market_id}/candles"
-            params = {"resolution": resolution, "limit": limit}
+            # dYdX v4 API endpoint format
+            url = f"{self.indexer_url}/v4/candles"
+            params = {
+                "market": market_id,
+                "resolution": resolution,
+                "limit": limit
+            }
+            
+            self.logger.info(f"Fetching candles from: {url} with params: {params}")
             
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                    response_text = await response.text()
+                    
                     if response.status != 200:
-                        self.logger.error(f"HTTP {response.status} for {market_id}: {await response.text()}")
+                        self.logger.error(f"HTTP {response.status} for {market_id}: {response_text[:200]}")
                         return pd.DataFrame()
                     
-                    data = await response.json()
+                    try:
+                        data = json.loads(response_text)
+                    except json.JSONDecodeError as e:
+                        self.logger.error(f"Invalid JSON response: {response_text[:200]}")
+                        return pd.DataFrame()
             
             if not data or not isinstance(data, dict):
-                self.logger.error(f"Invalid response format: {data}")
+                self.logger.error(f"Invalid response format: {type(data)}")
                 return pd.DataFrame()
             
-            if "candles" not in data:
-                self.logger.error(f"No 'candles' key in response: {data.keys()}")
-                return pd.DataFrame()
+            # Try different possible response formats
+            candles = data.get("candles") or data.get("data") or data
             
-            candles = data.get("candles", [])
+            if isinstance(candles, dict) and "candles" in candles:
+                candles = candles["candles"]
+            
+            if not isinstance(candles, list):
+                self.logger.error(f"No candles list in response. Keys: {data.keys() if isinstance(data, dict) else 'N/A'}")
+                return pd.DataFrame()
             
             if not candles:
                 self.logger.warning(f"No candles returned for {market_id}")
                 return pd.DataFrame()
             
+            self.logger.info(f"Got {len(candles)} candles for {market_id}")
+            
             df = pd.DataFrame(candles)
             
-            # Convert timestamp to datetime
-            if "startedAt" in df.columns:
-                df["startedAt"] = pd.to_datetime(df["startedAt"])
-            
-            # Convert price/size to float
-            for col in ["open", "high", "low", "close", "baseTokenVolume"]:
+            # Find and rename timestamp column (could be startedAt, time, timestamp, etc)
+            time_col = None
+            for col in ["startedAt", "time", "timestamp", "Time"]:
                 if col in df.columns:
-                    df[col] = pd.to_numeric(df[col], errors='coerce')
+                    time_col = col
+                    break
             
-            # Rename for consistency
-            df = df.rename(columns={
-                "open": "Open",
-                "high": "High",
-                "low": "Low",
-                "close": "Close",
-                "baseTokenVolume": "Volume",
-                "startedAt": "Time"
-            })
-            
-            if "Time" in df.columns:
+            if time_col:
+                df[time_col] = pd.to_datetime(df[time_col])
+                df.rename(columns={time_col: "Time"}, inplace=True)
                 df.set_index("Time", inplace=True)
             
+            # Convert price/size to float - handle various naming conventions
+            price_cols = {
+                "open": "Open", "Open": "Open",
+                "high": "High", "High": "High",
+                "low": "Low", "Low": "Low",
+                "close": "Close", "Close": "Close",
+                "baseTokenVolume": "Volume", "volume": "Volume", "Volume": "Volume"
+            }
+            
+            for old_col, new_col in price_cols.items():
+                if old_col in df.columns:
+                    df[old_col] = pd.to_numeric(df[old_col], errors='coerce')
+                    if old_col != new_col:
+                        df.rename(columns={old_col: new_col}, inplace=True)
+            
             # Only return if we have the required columns
-            required_cols = ["Open", "High", "Low", "Close", "Volume"]
+            required_cols = ["Open", "High", "Low", "Close"]
             available_cols = [col for col in required_cols if col in df.columns]
             
-            if available_cols:
-                return df[available_cols]
-            else:
-                self.logger.error(f"Missing required columns. Available: {df.columns.tolist()}")
+            if len(available_cols) < 4:
+                self.logger.error(f"Missing OHLC columns. Available: {df.columns.tolist()}")
                 return pd.DataFrame()
+            
+            # Add Volume if available
+            if "Volume" in df.columns:
+                available_cols.append("Volume")
+            
+            return df[available_cols]
         
         except Exception as e:
             self.logger.error(f"Error fetching candles for {market_id}: {e}")
@@ -154,10 +182,11 @@ class DydxIndexerClient:
             Orderbook data (bids, asks)
         """
         try:
-            url = f"{self.indexer_url}/perpetualMarkets/{market_id}/orderbook"
+            url = f"{self.indexer_url}/v4/orderbooks"
+            params = {"market": market_id}
             
             async with aiohttp.ClientSession() as session:
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=10)) as response:
                     if response.status == 200:
                         return await response.json()
                     return {}
@@ -178,8 +207,8 @@ class DydxIndexerClient:
             List of recent trades
         """
         try:
-            url = f"{self.indexer_url}/perpetualMarkets/{market_id}/trades"
-            params = {"limit": limit}
+            url = f"{self.indexer_url}/v4/trades"
+            params = {"market": market_id, "limit": limit}
             
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=10)) as response:
@@ -203,7 +232,7 @@ class DydxIndexerClient:
             Funding rate information
         """
         try:
-            url = f"{self.indexer_url}/perpetualMarkets/{market_id}/fundingRate"
+            url = f"{self.indexer_url}/v4/perpetualMarkets/{market_id}/fundingRate"
             
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
