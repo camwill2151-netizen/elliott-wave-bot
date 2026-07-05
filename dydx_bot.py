@@ -8,7 +8,7 @@ import sys
 
 from src.dydx_connector import DydxExchangeConnector
 from src.wave_detector import WaveDetector
-from src.signal_generator import SignalGenerator
+from src.indicators import SignalGenerator, Indicators
 
 
 # Configure logging
@@ -26,7 +26,7 @@ async def run_live_trading(market_id: str = "BTC-USD", network: str = "testnet",
     print(f"""
 ╔════════════════════════════════════════════════════════╗
 ║     ELLIOTT WAVE BOT - dYdX v4 LIVE TRADING MODE      ║
-╠═════════════════���══════════════════════════════════════╣
+╠═══════════════���══════���═════════════════════════════════╣
 ║ Market:         {market_id}
 ║ Network:        {network.upper()}
 ║ Check Interval: {check_interval}s
@@ -40,7 +40,8 @@ async def run_live_trading(market_id: str = "BTC-USD", network: str = "testnet",
     # Initialize connector
     connector = DydxExchangeConnector(private_key=private_key, network=network)
     wave_detector = WaveDetector()
-    signal_gen = SignalGenerator()
+    indicators = Indicators()
+    signal_gen = SignalGenerator(indicators)
     
     logger.info(f"Starting live trading loop for {market_id}...")
     
@@ -83,26 +84,38 @@ async def run_live_trading(market_id: str = "BTC-USD", network: str = "testnet",
             else:
                 logger.info("⚠️  No patterns detected")
             
-            # Generate signals
+            # Generate signals from indicators
             logger.info("Generating trading signals...")
-            signals = signal_gen.generate(df, patterns)
+            try:
+                combined_signal = signal_gen.generate_combined_signal(
+                    prices=df['Close'],
+                    high=df['High'],
+                    low=df['Low']
+                )
+                
+                logger.info(f"✅ Generated signal:")
+                logger.info(f"   - Confidence: {combined_signal['confidence']:.2%}")
+                logger.info(f"   - RSI: {combined_signal['rsi']['rsi_value']:.2f}")
+                logger.info(f"   - MACD Bullish: {combined_signal['macd']['bullish_crossover']}")
+                logger.info(f"   - Signal Type: ", end="")
+                
+                if combined_signal['strong_buy']:
+                    logger.info("🟢 STRONG BUY")
+                elif combined_signal['buy']:
+                    logger.info("🟢 BUY")
+                elif combined_signal['hold']:
+                    logger.info("🟡 HOLD")
+                elif combined_signal['sell']:
+                    logger.info("🔴 SELL")
+                
+                # TODO: Execute trade based on signal
+                # if combined_signal['strong_buy'] or combined_signal['buy']:
+                #     logger.info("   Executing BUY order...")
+                # elif combined_signal['sell']:
+                #     logger.info("   Executing SELL order...")
             
-            if signals:
-                logger.info(f"✅ Generated {len(signals)} signal(s)")
-                for i, signal in enumerate(signals, 1):
-                    logger.info(f"\n   Signal #{i}:")
-                    logger.info(f"   - Type: {signal.get('type', 'UNKNOWN')}")
-                    logger.info(f"   - Confidence: {signal.get('confidence', 0):.2%}")
-                    logger.info(f"   - RSI: {signal.get('rsi', 0):.2f}")
-                    logger.info(f"   - MACD: {signal.get('macd_status', 'UNKNOWN')}")
-                    
-                    # TODO: Execute trade based on signal
-                    # if signal['type'] == 'BUY':
-                    #     logger.info("   🟢 BUY signal - executing trade...")
-                    # elif signal['type'] == 'SELL':
-                    #     logger.info("   🔴 SELL signal - executing trade...")
-            else:
-                logger.info("⚠️  No signals generated")
+            except Exception as e:
+                logger.error(f"Error generating signals: {e}")
             
             # Get market stats
             stats = await connector.get_market_stats(market_id)
