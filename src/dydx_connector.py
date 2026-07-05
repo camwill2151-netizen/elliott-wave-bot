@@ -54,8 +54,12 @@ class DydxIndexerClient:
         try:
             url = f"{self.indexer_url}/perpetualMarkets"
             async with aiohttp.ClientSession() as session:
-                async with session.get(url) as response:
-                    return await response.json()
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                    if response.status == 200:
+                        return await response.json()
+                    else:
+                        self.logger.error(f"HTTP {response.status}: {await response.text()}")
+                        return {}
         except Exception as e:
             self.logger.error(f"Error fetching markets: {e}")
             return {}
@@ -78,22 +82,37 @@ class DydxIndexerClient:
             params = {"resolution": resolution, "limit": limit}
             
             async with aiohttp.ClientSession() as session:
-                async with session.get(url, params=params) as response:
+                async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                    if response.status != 200:
+                        self.logger.error(f"HTTP {response.status} for {market_id}: {await response.text()}")
+                        return pd.DataFrame()
+                    
                     data = await response.json()
             
-            if not data.get("candles"):
+            if not data or not isinstance(data, dict):
+                self.logger.error(f"Invalid response format: {data}")
                 return pd.DataFrame()
             
-            candles = data["candles"]
+            if "candles" not in data:
+                self.logger.error(f"No 'candles' key in response: {data.keys()}")
+                return pd.DataFrame()
+            
+            candles = data.get("candles", [])
+            
+            if not candles:
+                self.logger.warning(f"No candles returned for {market_id}")
+                return pd.DataFrame()
+            
             df = pd.DataFrame(candles)
             
             # Convert timestamp to datetime
-            df["startedAt"] = pd.to_datetime(df["startedAt"])
+            if "startedAt" in df.columns:
+                df["startedAt"] = pd.to_datetime(df["startedAt"])
             
             # Convert price/size to float
             for col in ["open", "high", "low", "close", "baseTokenVolume"]:
                 if col in df.columns:
-                    df[col] = df[col].astype(float)
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
             
             # Rename for consistency
             df = df.rename(columns={
@@ -105,12 +124,23 @@ class DydxIndexerClient:
                 "startedAt": "Time"
             })
             
-            df.set_index("Time", inplace=True)
+            if "Time" in df.columns:
+                df.set_index("Time", inplace=True)
             
-            return df[["Open", "High", "Low", "Close", "Volume"]]
+            # Only return if we have the required columns
+            required_cols = ["Open", "High", "Low", "Close", "Volume"]
+            available_cols = [col for col in required_cols if col in df.columns]
+            
+            if available_cols:
+                return df[available_cols]
+            else:
+                self.logger.error(f"Missing required columns. Available: {df.columns.tolist()}")
+                return pd.DataFrame()
         
         except Exception as e:
             self.logger.error(f"Error fetching candles for {market_id}: {e}")
+            import traceback
+            traceback.print_exc()
             return pd.DataFrame()
     
     async def get_market_orderbook(self, market_id: str) -> Dict:
@@ -127,8 +157,10 @@ class DydxIndexerClient:
             url = f"{self.indexer_url}/perpetualMarkets/{market_id}/orderbook"
             
             async with aiohttp.ClientSession() as session:
-                async with session.get(url) as response:
-                    return await response.json()
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                    if response.status == 200:
+                        return await response.json()
+                    return {}
         
         except Exception as e:
             self.logger.error(f"Error fetching orderbook for {market_id}: {e}")
@@ -150,10 +182,11 @@ class DydxIndexerClient:
             params = {"limit": limit}
             
             async with aiohttp.ClientSession() as session:
-                async with session.get(url, params=params) as response:
-                    data = await response.json()
-            
-            return data.get("trades", [])
+                async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return data.get("trades", [])
+                    return []
         
         except Exception as e:
             self.logger.error(f"Error fetching trades for {market_id}: {e}")
@@ -173,8 +206,10 @@ class DydxIndexerClient:
             url = f"{self.indexer_url}/perpetualMarkets/{market_id}/fundingRate"
             
             async with aiohttp.ClientSession() as session:
-                async with session.get(url) as response:
-                    return await response.json()
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                    if response.status == 200:
+                        return await response.json()
+                    return {}
         
         except Exception as e:
             self.logger.error(f"Error fetching funding for {market_id}: {e}")
@@ -224,8 +259,10 @@ class DydxChainClient:
         try:
             async with aiohttp.ClientSession() as session:
                 url = f"{self.node_url}/cosmos/auth/v1beta1/accounts/{self.account_address}"
-                async with session.get(url) as response:
-                    return await response.json()
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                    if response.status == 200:
+                        return await response.json()
+                    return {}
         except Exception as e:
             self.logger.error(f"Error fetching account: {e}")
             return {}
@@ -240,7 +277,9 @@ class DydxChainClient:
         try:
             async with aiohttp.ClientSession() as session:
                 url = f"{self.node_url}/cosmos/bank/v1beta1/balances/{self.account_address}"
-                async with session.get(url) as response:
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                    if response.status != 200:
+                        return {}
                     data = await response.json()
             
             balances = {}
@@ -267,10 +306,11 @@ class DydxChainClient:
                 url = f"{self.node_url}/dydxprotocol/perpetuals/positions"
                 params = {"address": self.account_address}
                 
-                async with session.get(url, params=params) as response:
-                    data = await response.json()
-            
-            return data.get("positions", [])
+                async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return data.get("positions", [])
+                    return []
         
         except Exception as e:
             self.logger.error(f"Error fetching positions: {e}")
@@ -338,7 +378,7 @@ class DydxExchangeConnector:
         """Get current funding rate."""
         funding_data = await self.indexer.get_market_funding(market_id)
         
-        if funding_data and "fundingRate" in funding_data:
+        if funding_data and isinstance(funding_data, dict) and "fundingRate" in funding_data:
             return float(funding_data["fundingRate"]["fundingRate"])
         
         return None
