@@ -26,7 +26,7 @@ async def run_live_trading(market_id: str = "BTC-USD", network: str = "testnet",
     print(f"""
 ╔════════════════════════════════════════════════════════╗
 ║     ELLIOTT WAVE BOT - dYdX v4 LIVE TRADING MODE      ║
-╠═══════════════���════════════════════════════════════════╣
+╠══════════════════════���═════════════════════════════════╣
 ║ Market:         {market_id}
 ║ Network:        {network.upper()}
 ║ Check Interval: {check_interval}s
@@ -100,16 +100,19 @@ async def run_live_trading(market_id: str = "BTC-USD", network: str = "testnet",
                 logger.info(f"   - Confidence: {combined_signal['confidence']:.2%}")
                 logger.info(f"   - RSI: {combined_signal['rsi']['rsi_value']:.2f}")
                 logger.info(f"   - MACD Bullish: {combined_signal['macd']['bullish_crossover']}")
-                logger.info(f"   - Signal Type: ", end="")
                 
+                # Determine signal type
+                signal_type = ""
                 if combined_signal['strong_buy']:
-                    logger.info("🟢 STRONG BUY")
+                    signal_type = "🟢 STRONG BUY"
                 elif combined_signal['buy']:
-                    logger.info("🟢 BUY")
+                    signal_type = "🟢 BUY"
                 elif combined_signal['hold']:
-                    logger.info("🟡 HOLD")
+                    signal_type = "🟡 HOLD"
                 elif combined_signal['sell']:
-                    logger.info("🔴 SELL")
+                    signal_type = "🔴 SELL"
+                
+                logger.info(f"   - Signal Type: {signal_type}")
                 
                 # Combine with wave patterns for better signals
                 if patterns and combined_signal['strong_buy']:
