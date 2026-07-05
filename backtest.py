@@ -106,43 +106,43 @@ async def run_backtest(market_id: str = "BTC-USD", lookback_days: int = 14,
             bearish_score = 0.0
             
             # Wave vote (0-1 scale)
-            if patterns and patterns[0].confidence > 0.5:
+            if patterns and patterns[0].confidence > 0.3:
                 if patterns[0].pattern_type == "impulse":
-                    bullish_score += patterns[0].confidence
+                    bullish_score += patterns[0].confidence * 0.5
                 else:
-                    bearish_score += patterns[0].confidence
+                    bearish_score += patterns[0].confidence * 0.5
             
             # Indicator vote (0-1 scale)
             indicator_strength = combined_signal['confidence']
             if combined_signal['strong_buy']:
                 bullish_score += indicator_strength
             elif combined_signal['buy']:
-                bullish_score += indicator_strength * 0.5
+                bullish_score += indicator_strength * 0.6
             elif combined_signal['sell']:
-                bearish_score += indicator_strength
+                bearish_score += indicator_strength * 0.6
             
             # Sentiment vote (0-1 scale)
             if sentiment_signal['signal_type'] == "STRONG BUY":
                 bullish_score += sentiment_signal['confidence']
             elif sentiment_signal['signal_type'] == "BUY":
-                bullish_score += sentiment_signal['confidence'] * 0.5
+                bullish_score += sentiment_signal['confidence'] * 0.6
             elif sentiment_signal['signal_type'] == "STRONG SELL":
                 bearish_score += sentiment_signal['confidence']
             elif sentiment_signal['signal_type'] == "SELL":
-                bearish_score += sentiment_signal['confidence'] * 0.5
+                bearish_score += sentiment_signal['confidence'] * 0.6
             
             # Generate final signal based on weighted scores
             final_signal = "HOLD"
             
             # If no position, only look for BUY signals
             if not backtester.current_position:
-                if bullish_score > 0.5:  # Threshold for opening position
+                if bullish_score > 0.3:  # Lower threshold for opening position
                     final_signal = "BUY"
                 else:
                     final_signal = "HOLD"
             else:
                 # If in position, only look for SELL signals
-                if bearish_score > 0.5:  # Threshold for closing position
+                if bearish_score > 0.3:  # Lower threshold for closing position
                     final_signal = "SELL"
                 else:
                     final_signal = "HOLD"
