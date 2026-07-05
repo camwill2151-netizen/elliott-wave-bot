@@ -65,6 +65,7 @@ async def run_backtest(market_id: str = "BTC-USD", lookback_days: int = 14,
     print(f"\nRunning backtest on 4H timeframe...\n")
     
     signal_counts = {'BUY': 0, 'SELL': 0, 'HOLD': 0}
+    debug_candles = []
     
     for i in range(5, len(df)):  # Start from candle 5 to have enough history
         try:
@@ -78,6 +79,8 @@ async def run_backtest(market_id: str = "BTC-USD", lookback_days: int = 14,
             
             # Detect patterns
             patterns = wave_detector.detect_all_patterns(lookback_df['Close'])
+            pattern_confidence = patterns[0].confidence if patterns else 0
+            pattern_type = patterns[0].pattern_type if patterns else "none"
             
             # Generate indicator signals
             combined_signal = signal_gen.generate_combined_signal(
@@ -149,6 +152,20 @@ async def run_backtest(market_id: str = "BTC-USD", lookback_days: int = 14,
             
             signal_counts[final_signal] += 1
             
+            # Store debug info for first few candles
+            if i < 10 or final_signal != "HOLD":
+                debug_candles.append({
+                    'candle': i,
+                    'close': current_close,
+                    'pattern': f"{pattern_type}({pattern_confidence:.2f})",
+                    'indicator': combined_signal.get('signal_type', 'N/A'),
+                    'sentiment': sentiment_signal.get('signal_type', 'N/A'),
+                    'bullish_score': bullish_score,
+                    'bearish_score': bearish_score,
+                    'signal': final_signal,
+                    'in_position': backtester.current_position is not None
+                })
+            
             # Execute signal
             backtester.execute_signal(i, current_close, final_signal, timestamp)
             
@@ -167,10 +184,21 @@ async def run_backtest(market_id: str = "BTC-USD", lookback_days: int = 14,
             
         except Exception as e:
             logger.error(f"Error at candle {i}: {e}")
+            import traceback
+            traceback.print_exc()
             continue
     
     # Close all positions at end
     backtester.close_all_positions(len(df)-1, df['Close'].iloc[-1])
+    
+    # Print debug info
+    print(f"\n🔍 DEBUG - First 10 candles and signal candles:")
+    print("=" * 140)
+    print(f"{'Candle':<8} {'Close':<12} {'Pattern':<15} {'Indicator':<12} {'Sentiment':<12} {'Bull':<8} {'Bear':<8} {'Signal':<8} {'In Pos':<8}")
+    print("=" * 140)
+    for dc in debug_candles:
+        print(f"{dc['candle']:<8} {dc['close']:<12,.0f} {dc['pattern']:<15} {dc['indicator']:<12} {dc['sentiment']:<12} {dc['bullish_score']:<8.2f} {dc['bearish_score']:<8.2f} {dc['signal']:<8} {str(dc['in_position']):<8}")
+    print("=" * 140)
     
     # Print signal statistics
     print(f"\n📊 SIGNAL STATISTICS (4H Timeframe):")
