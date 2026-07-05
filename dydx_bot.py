@@ -26,7 +26,7 @@ async def run_live_trading(market_id: str = "BTC-USD", network: str = "testnet",
     print(f"""
 ╔════════════════════════════════════════════════════════╗
 ║     ELLIOTT WAVE BOT - dYdX v4 LIVE TRADING MODE      ║
-╠═══════════════���══════���═════════════════════════════════╣
+╠═══════════════���════════════════════════════════════════╣
 ║ Market:         {market_id}
 ║ Network:        {network.upper()}
 ║ Check Interval: {check_interval}s
@@ -75,12 +75,15 @@ async def run_live_trading(market_id: str = "BTC-USD", network: str = "testnet",
             
             # Detect Elliott Wave patterns
             logger.info("Analyzing Elliott Wave patterns...")
-            patterns = wave_detector.detect(df)
+            patterns = wave_detector.detect_all_patterns(df['Close'])
             
             if patterns:
                 logger.info(f"✅ Found {len(patterns)} pattern(s)")
-                for pattern in patterns:
-                    logger.info(f"   - {pattern['type']}: confidence={pattern['confidence']:.2%}")
+                for i, pattern in enumerate(patterns[:3], 1):  # Show top 3
+                    logger.info(f"   Pattern {i}:")
+                    logger.info(f"   - Type: {pattern.pattern_type}")
+                    logger.info(f"   - Confidence: {pattern.confidence:.2%}")
+                    logger.info(f"   - Valid: {pattern.is_valid}")
             else:
                 logger.info("⚠️  No patterns detected")
             
@@ -107,6 +110,19 @@ async def run_live_trading(market_id: str = "BTC-USD", network: str = "testnet",
                     logger.info("🟡 HOLD")
                 elif combined_signal['sell']:
                     logger.info("🔴 SELL")
+                
+                # Combine with wave patterns for better signals
+                if patterns and combined_signal['strong_buy']:
+                    best_pattern = patterns[0]
+                    logger.info(f"\n   💡 Pattern confirmation: {best_pattern.pattern_type.upper()}")
+                    logger.info(f"      Confidence: {best_pattern.confidence:.2%}")
+                    
+                    # Get price targets
+                    targets = wave_detector.predict_next_target(best_pattern, df['Close'])
+                    if targets:
+                        logger.info(f"      Price Targets:")
+                        for level, target_price in targets.items():
+                            logger.info(f"        - {level}: ${target_price:,.2f}")
                 
                 # TODO: Execute trade based on signal
                 # if combined_signal['strong_buy'] or combined_signal['buy']:
