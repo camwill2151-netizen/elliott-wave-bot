@@ -1,4 +1,4 @@
-"""Backtest mode for Elliott Wave Bot with sentiment analysis."""
+"""Backtest mode for Elliott Wave Bot with sentiment analysis - 4H timeframe."""
 
 import asyncio
 import argparse
@@ -23,13 +23,14 @@ logger = logging.getLogger(__name__)
 
 async def run_backtest(market_id: str = "BTC-USD", lookback_days: int = 14,
                        initial_capital: float = 1000, position_size_percent: float = 0.25):
-    """Run backtest on historical data."""
+    """Run backtest on historical data using 4H timeframe."""
     
     print(f"""
-╔════════════════��═══════════════════════════════════════╗
+╔════════════════════════════════════════════════════════╗
 ║    ELLIOTT WAVE BOT - BACKTEST MODE WITH SENTIMENT    ║
 ╠════════════════════════════════════════════════════════╣
 ║ Market:          {market_id}
+║ Timeframe:       4H (4-hour candles)
 ║ Lookback Period: {lookback_days} days
 ║ Initial Capital: ${initial_capital:,.2f}
 ║ Position Size:   {position_size_percent*100:.0f}% per trade
@@ -48,31 +49,32 @@ async def run_backtest(market_id: str = "BTC-USD", lookback_days: int = 14,
     backtester = Backtester(initial_capital=initial_capital, 
                            position_size_percent=position_size_percent)
     
-    logger.info(f"Fetching {lookback_days} days of historical data...")
+    logger.info(f"Fetching {lookback_days} days of historical data on 4H timeframe...")
     
-    # Fetch historical data
-    df = await connector.get_price_data(market_id, resolution="1HOUR", limit=lookback_days*24)
+    # Fetch historical data on 4H timeframe
+    # 14 days * 6 candles per day (24h / 4h) = 84 candles
+    df = await connector.get_price_data(market_id, resolution="4HOUR", limit=lookback_days*6)
     
     if df.empty:
         logger.error(f"No data available for {market_id}")
         return
     
-    logger.info(f"Got {len(df)} candles")
+    logger.info(f"Got {len(df)} 4H candles")
     
     # Backtest each candle
-    print(f"\nRunning backtest...\n")
+    print(f"\nRunning backtest on 4H timeframe...\n")
     
     signal_counts = {'BUY': 0, 'SELL': 0, 'HOLD': 0}
     
-    for i in range(20, len(df)):  # Start from candle 20 to have enough history
+    for i in range(5, len(df)):  # Start from candle 5 to have enough history
         try:
             timestamp = df.index[i] if hasattr(df.index[i], 'to_pydatetime') else datetime.now()
             current_close = df['Close'].iloc[i]
             current_high = df['High'].iloc[i]
             current_low = df['Low'].iloc[i]
             
-            # Use lookback window (last 100 candles for pattern detection)
-            lookback_df = df.iloc[max(0, i-100):i+1]
+            # Use lookback window (last 50 candles = ~200 hours = ~8 days on 4H)
+            lookback_df = df.iloc[max(0, i-50):i+1]
             
             # Detect patterns
             patterns = wave_detector.detect_all_patterns(lookback_df['Close'])
@@ -171,7 +173,7 @@ async def run_backtest(market_id: str = "BTC-USD", lookback_days: int = 14,
     backtester.close_all_positions(len(df)-1, df['Close'].iloc[-1])
     
     # Print signal statistics
-    print(f"\n📊 SIGNAL STATISTICS:")
+    print(f"\n📊 SIGNAL STATISTICS (4H Timeframe):")
     print(f"   BUY signals:  {signal_counts['BUY']}")
     print(f"   SELL signals: {signal_counts['SELL']}")
     print(f"   HOLD signals: {signal_counts['HOLD']}")
@@ -183,7 +185,7 @@ async def run_backtest(market_id: str = "BTC-USD", lookback_days: int = 14,
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
-        description='Elliott Wave Bot Backtest - 2 weeks of data with sentiment analysis'
+        description='Elliott Wave Bot Backtest - 4H Timeframe with sentiment analysis'
     )
     
     parser.add_argument('--market', type=str, default='BTC-USD',
