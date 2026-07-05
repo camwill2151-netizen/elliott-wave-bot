@@ -69,6 +69,7 @@ class Backtester:
         self.current_position = None
         self.equity_curve = [initial_capital]
         self.timestamps = []
+        self.last_signal = None
     
     def execute_signal(self, index: int, price: float, signal: str, timestamp: datetime):
         """
@@ -80,8 +81,10 @@ class Backtester:
             signal: "BUY", "SELL", or "HOLD"
             timestamp: Current timestamp
         """
-        if signal == "HOLD":
+        if signal == "HOLD" or signal == self.last_signal:
             return
+        
+        self.last_signal = signal
         
         # Close existing position if opposite signal
         if self.current_position and self.current_position.signal_type != signal:
@@ -148,36 +151,38 @@ class Backtester:
     
     def get_results(self) -> Dict:
         """Get backtest results."""
-        if not self.trades:
-            return {
-                'initial_capital': self.initial_capital,
-                'final_capital': self.capital,
-                'total_return_dollars': 0,
-                'total_return_percent': 0,
-                'total_trades': 0,
-                'winning_trades': 0,
-                'losing_trades': 0,
-                'win_rate': 0,
-                'avg_win': 0,
-                'avg_loss': 0,
-                'profit_factor': 0,
-                'max_drawdown': 0,
-                'sharpe_ratio': 0
-            }
+        results = {
+            'initial_capital': self.initial_capital,
+            'final_capital': self.capital,
+            'total_return_dollars': self.capital - self.initial_capital,
+            'total_return_percent': ((self.capital - self.initial_capital) / self.initial_capital) * 100,
+            'total_trades': len(self.trades),
+            'winning_trades': 0,
+            'losing_trades': 0,
+            'win_rate': 0,
+            'avg_win': 0,
+            'avg_loss': 0,
+            'profit_factor': 0,
+            'max_drawdown': 0,
+            'sharpe_ratio': 0,
+            'trades': self.trades
+        }
         
-        total_return = self.capital - self.initial_capital
-        total_return_percent = (total_return / self.initial_capital) * 100
+        if not self.trades:
+            return results
         
         winning_trades = [t for t in self.trades if t.pnl and t.pnl > 0]
         losing_trades = [t for t in self.trades if t.pnl and t.pnl < 0]
         
-        win_rate = len(winning_trades) / len(self.trades) if self.trades else 0
-        avg_win = sum(t.pnl for t in winning_trades) / len(winning_trades) if winning_trades else 0
-        avg_loss = sum(t.pnl for t in losing_trades) / len(losing_trades) if losing_trades else 0
+        results['winning_trades'] = len(winning_trades)
+        results['losing_trades'] = len(losing_trades)
+        results['win_rate'] = (len(winning_trades) / len(self.trades)) * 100 if self.trades else 0
+        results['avg_win'] = sum(t.pnl for t in winning_trades) / len(winning_trades) if winning_trades else 0
+        results['avg_loss'] = sum(t.pnl for t in losing_trades) / len(losing_trades) if losing_trades else 0
         
         total_wins = sum(t.pnl for t in winning_trades)
         total_losses = abs(sum(t.pnl for t in losing_trades))
-        profit_factor = total_wins / total_losses if total_losses > 0 else 0
+        results['profit_factor'] = total_wins / total_losses if total_losses > 0 else 0
         
         # Calculate drawdown
         equity_peak = self.initial_capital
@@ -189,29 +194,14 @@ class Backtester:
             if drawdown > max_drawdown:
                 max_drawdown = drawdown
         
-        # Sharpe ratio (simplified - assuming daily returns)
+        results['max_drawdown'] = max_drawdown * 100
+        
+        # Sharpe ratio
         returns = np.diff(self.equity_curve) / np.array(self.equity_curve[:-1])
         if len(returns) > 0 and np.std(returns) > 0:
-            sharpe_ratio = (np.mean(returns) / np.std(returns)) * np.sqrt(252)
-        else:
-            sharpe_ratio = 0
+            results['sharpe_ratio'] = (np.mean(returns) / np.std(returns)) * np.sqrt(252)
         
-        return {
-            'initial_capital': self.initial_capital,
-            'final_capital': self.capital,
-            'total_return_dollars': total_return,
-            'total_return_percent': total_return_percent,
-            'total_trades': len(self.trades),
-            'winning_trades': len(winning_trades),
-            'losing_trades': len(losing_trades),
-            'win_rate': win_rate * 100,
-            'avg_win': avg_win,
-            'avg_loss': avg_loss,
-            'profit_factor': profit_factor,
-            'max_drawdown': max_drawdown * 100,
-            'sharpe_ratio': sharpe_ratio,
-            'trades': self.trades
-        }
+        return results
     
     def print_results(self):
         """Print backtest results."""
@@ -248,6 +238,9 @@ class Backtester:
             for i, trade in enumerate(results['trades'], 1):
                 pnl_str = f"${trade.pnl:,.2f}" if trade.pnl else "OPEN"
                 pnl_pct_str = f"{trade.pnl_percent:.2f}%" if trade.pnl_percent else "N/A"
-                print(f"{i:<4} {trade.signal_type:<6} ${trade.entry_price:<11,.2f} ${trade.exit_price:<11,.2f} {pnl_str:<12} {pnl_pct_str:<8} {trade.exit_type:<12}")
+                exit_price_str = f"${trade.exit_price:.2f}" if trade.exit_price else "N/A"
+                print(f"{i:<4} {trade.signal_type:<6} ${trade.entry_price:<11,.2f} {exit_price_str:<12} {pnl_str:<12} {pnl_pct_str:<8} {trade.exit_type:<12}")
             
             print("=" * 100)
+        else:
+            print("\n⚠️  No trades executed during backtest period.")
