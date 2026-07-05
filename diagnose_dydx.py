@@ -1,29 +1,33 @@
-"""Quick diagnostic script to test dYdX API endpoints."""
+"""Quick diagnostic script to test dYdX candles endpoint variations."""
 
 import asyncio
 import aiohttp
 import json
 
 
-async def test_endpoints():
-    """Test various dYdX API endpoints to find working ones."""
+async def test_candles_endpoints():
+    """Test various candle endpoint formats."""
     
     endpoints_to_test = [
-        # Official indexer
-        ("https://indexer.dydx.trade/v4/perpetualMarkets", "Official - List markets"),
-        ("https://indexer.dydx.trade/v4/perpetualMarkets/BTC-USD/candles", "Official - BTC candles"),
+        # Based on what works for markets
+        ("https://indexer.dydx.trade/v4/perpetualMarkets/BTC-USD/candles", "Original format"),
+        ("https://indexer.dydx.trade/v4/perpetualMarkets/BTC-USD/candles?resolution=1HOUR&limit=10", "With query params"),
         
-        # Alternative indexers
-        ("https://dydx-mainnet-lcd.allthatnode.com:1317/swagger/", "Allthatnode REST"),
-        ("https://indexer.dydx.exchange/v4/perpetualMarkets", "Alternative domain - perpetualMarkets"),
+        # Try sparklines
+        ("https://indexer.dydx.trade/v4/perpetualMarkets/sparklines", "Sparklines endpoint"),
         
-        # Try different base paths
-        ("https://indexer.dydx.trade/perpetualMarkets/BTC-USD/candles", "No /v4 prefix"),
-        ("https://indexer.dydx.trade/api/v4/perpetualMarkets", "With /api prefix"),
+        # Try trades instead
+        ("https://indexer.dydx.trade/v4/perpetualMarkets/BTC-USD/trades", "Trades endpoint"),
+        
+        # Try orderbook
+        ("https://indexer.dydx.trade/v4/perpetualMarkets/BTC-USD/orderbook", "Orderbook endpoint"),
+        
+        # Try funding
+        ("https://indexer.dydx.trade/v4/perpetualMarkets/BTC-USD/fundingRate", "Funding endpoint"),
     ]
     
     print("=" * 70)
-    print("Testing dYdX API Endpoints")
+    print("Testing dYdX Candles & Market Data Endpoints")
     print("=" * 70)
     
     async with aiohttp.ClientSession() as session:
@@ -40,12 +44,23 @@ async def test_endpoints():
                         print(f"    ✅ HTTP {status} - SUCCESS")
                         try:
                             data = json.loads(text)
-                            print(f"    Response preview: {str(data)[:100]}...")
+                            # Show structure
+                            if isinstance(data, dict):
+                                print(f"    Keys: {list(data.keys())}")
+                                for key in list(data.keys())[:3]:
+                                    val = data[key]
+                                    if isinstance(val, list):
+                                        print(f"      - {key}: list[{len(val)}]")
+                                    elif isinstance(val, dict):
+                                        print(f"      - {key}: dict with keys {list(val.keys())[:3]}")
+                                    else:
+                                        print(f"      - {key}: {str(val)[:50]}")
                         except:
-                            print(f"    Response: {text[:100]}...")
+                            print(f"    Response: {text[:150]}...")
                     else:
                         print(f"    ❌ HTTP {status}")
-                        print(f"    Error: {text[:100]}")
+                        if text:
+                            print(f"    Error: {text[:100]}")
             
             except asyncio.TimeoutError:
                 print(f"    ❌ TIMEOUT (5s)")
@@ -58,4 +73,4 @@ async def test_endpoints():
 
 
 if __name__ == "__main__":
-    asyncio.run(test_endpoints())
+    asyncio.run(test_candles_endpoints())
