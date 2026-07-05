@@ -1,4 +1,4 @@
-"""dYdX v4 Exchange Integration Module."""
+"""dYdX v4 Exchange Integration Module - 2026 API Structure."""
 
 import asyncio
 import json
@@ -19,15 +19,10 @@ except ImportError:
 
 
 class DydxIndexerClient:
-    """Client for dYdX v4 Indexer (read-only operations)."""
+    """Client for dYdX v4 Indexer (read-only operations) - 2026 API."""
     
     def __init__(self, indexer_url: str = "https://indexer.dydx.trade"):
-        """
-        Initialize dYdX Indexer client.
-        
-        Args:
-            indexer_url: Base URL for dYdX indexer
-        """
+        """Initialize dYdX Indexer client."""
         self.indexer_url = indexer_url.rstrip('/')
         self.logger = logging.getLogger(__name__)
         self.session = None
@@ -45,7 +40,8 @@ class DydxIndexerClient:
     async def get_markets(self) -> Dict:
         """Get all perpetual markets."""
         try:
-            url = f"{self.indexer_url}/v4/perpetualMarkets"
+            # 2026 endpoint: /v4/markets/perpetual
+            url = f"{self.indexer_url}/v4/markets/perpetual"
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
                     if response.status == 200:
@@ -70,8 +66,8 @@ class DydxIndexerClient:
             DataFrame with OHLCV data
         """
         try:
-            # Correct endpoint: /v4/perpetualMarkets/{market_id}/candles
-            url = f"{self.indexer_url}/v4/perpetualMarkets/{market_id}/candles"
+            # 2026 endpoint: /v4/markets/perpetual/{market}/candles
+            url = f"{self.indexer_url}/v4/markets/perpetual/{market_id}/candles"
             params = {
                 "resolution": resolution,
                 "limit": limit
@@ -144,7 +140,8 @@ class DydxIndexerClient:
     async def get_market_orderbook(self, market_id: str) -> Dict:
         """Get current orderbook for a market."""
         try:
-            url = f"{self.indexer_url}/v4/perpetualMarkets/{market_id}/orderbook"
+            # 2026 endpoint: /v4/markets/perpetual/{market}/orderbook
+            url = f"{self.indexer_url}/v4/markets/perpetual/{market_id}/orderbook"
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
                     if response.status == 200:
@@ -157,7 +154,8 @@ class DydxIndexerClient:
     async def get_market_trades(self, market_id: str, limit: int = 100) -> List[Dict]:
         """Get recent trades for a market."""
         try:
-            url = f"{self.indexer_url}/v4/perpetualMarkets/{market_id}/trades"
+            # 2026 endpoint: /v4/markets/perpetual/{market}/trades
+            url = f"{self.indexer_url}/v4/markets/perpetual/{market_id}/trades"
             params = {"limit": limit}
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=10)) as response:
@@ -172,7 +170,8 @@ class DydxIndexerClient:
     async def get_market_funding(self, market_id: str) -> Dict:
         """Get funding rate data for a market."""
         try:
-            url = f"{self.indexer_url}/v4/perpetualMarkets/{market_id}/historicalFunding"
+            # 2026 endpoint: /v4/markets/perpetual/{market}/funding-history
+            url = f"{self.indexer_url}/v4/markets/perpetual/{market_id}/funding-history"
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
                     if response.status == 200:
@@ -187,13 +186,7 @@ class DydxChainClient:
     """Client for dYdX v4 Chain (read/write operations with wallet)."""
     
     def __init__(self, private_key: str, network: str = "mainnet"):
-        """
-        Initialize dYdX Chain client.
-        
-        Args:
-            private_key: Private key (hex string without 0x prefix)
-            network: Network to connect to ("mainnet" or "testnet")
-        """
+        """Initialize dYdX Chain client."""
         if not HAS_COSMPY:
             raise ImportError("cosmpy is required for wallet operations. Install with: pip install cosmpy")
         
@@ -277,7 +270,7 @@ class DydxChainClient:
 
 
 class DydxExchangeConnector:
-    """High-level connector for dYdX v4."""
+    """High-level connector for dYdX v4 - 2026 API."""
     
     def __init__(self, private_key: Optional[str] = None, network: str = "mainnet"):
         """Initialize dYdX exchange connector."""
