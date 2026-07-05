@@ -8,15 +8,16 @@ from datetime import datetime, timedelta
 import pandas as pd
 import aiohttp
 
-# dYdX v4 client imports
+# Optional: dYdX v4 client imports for advanced wallet features
+# Most users won't need these - the REST API works fine
 try:
-    from v4_client_py.client import Client, CompositeClient, Network
-    from v4_client_py.chain.channel import Channel
     from cosmpy.aerial.client import LedgerClient
     from cosmpy.aerial.wallet import LocalWallet
     from cosmpy.crypto.keypairs import PrivateKey
+    HAS_COSMPY = True
 except ImportError:
-    print("Warning: dYdX v4 client libraries not installed. Install with: pip install dydx-v4-client-py cosmpy")
+    HAS_COSMPY = False
+    print("Note: For wallet features, install cosmpy with: pip install cosmpy")
 
 
 class DydxIndexerClient:
@@ -191,6 +192,9 @@ class DydxChainClient:
             private_key: Private key (hex string without 0x prefix)
             network: Network to connect to ("mainnet" or "testnet")
         """
+        if not HAS_COSMPY:
+            raise ImportError("cosmpy is required for wallet operations. Install with: pip install cosmpy")
+        
         self.logger = logging.getLogger(__name__)
         self.network = network
         
