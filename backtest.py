@@ -26,7 +26,7 @@ async def run_backtest(market_id: str = "BTC-USD", lookback_days: int = 14,
     """Run backtest on historical data."""
     
     print(f"""
-╔════════════════════════════════════════════════════════╗
+╔════════════════��═══════════════════════════════════════╗
 ║    ELLIOTT WAVE BOT - BACKTEST MODE WITH SENTIMENT    ║
 ╠════════════════════════════════════════════════════════╣
 ║ Market:          {market_id}
@@ -35,6 +35,7 @@ async def run_backtest(market_id: str = "BTC-USD", lookback_days: int = 14,
 ║ Position Size:   {position_size_percent*100:.0f}% per trade
 ║ Stop Loss:       2.0%
 ║ Take Profit:     5.0%
+║ Strategy:        BUY on signal, HOLD until SELL
 ╚════════════════════════════════════════════════════════╝
     """)
     
@@ -130,10 +131,19 @@ async def run_backtest(market_id: str = "BTC-USD", lookback_days: int = 14,
             
             # Generate final signal based on weighted scores
             final_signal = "HOLD"
-            if bullish_score > bearish_score + 0.3:
-                final_signal = "BUY"
-            elif bearish_score > bullish_score + 0.3:
-                final_signal = "SELL"
+            
+            # If no position, only look for BUY signals
+            if not backtester.current_position:
+                if bullish_score > 0.5:  # Threshold for opening position
+                    final_signal = "BUY"
+                else:
+                    final_signal = "HOLD"
+            else:
+                # If in position, only look for SELL signals
+                if bearish_score > 0.5:  # Threshold for closing position
+                    final_signal = "SELL"
+                else:
+                    final_signal = "HOLD"
             
             signal_counts[final_signal] += 1
             
