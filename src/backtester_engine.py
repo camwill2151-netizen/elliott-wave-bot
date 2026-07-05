@@ -48,15 +48,15 @@ class Backtester:
     """Backtests trading signals with Elliott Wave + Sentiment analysis."""
     
     def __init__(self, initial_capital: float = 1000, position_size_percent: float = 0.25,
-                 stop_loss_percent: float = 2.0, take_profit_percent: float = 5.0):
+                 stop_loss_percent: float = 5.0, take_profit_percent: float = 10.0):
         """
         Initialize backtester.
         
         Args:
             initial_capital: Starting capital
             position_size_percent: Percentage of capital to use per trade (0.25 = 25%)
-            stop_loss_percent: Stop loss percentage
-            take_profit_percent: Take profit percentage
+            stop_loss_percent: Stop loss percentage (default: 5%)
+            take_profit_percent: Take profit percentage (default: 10%)
         """
         self.initial_capital = initial_capital
         self.position_size_percent = position_size_percent
@@ -105,6 +105,7 @@ class Backtester:
             # Stop loss
             if low < self.current_position.entry_price * (1 - self.stop_loss_percent / 100):
                 stop_price = self.current_position.entry_price * (1 - self.stop_loss_percent / 100)
+                logger.warning(f"🛑 STOP LOSS triggered at candle {index}: Entry={self.current_position.entry_price:.2f}, Stop={stop_price:.2f}, Low={low:.2f}")
                 self.current_position.close(index, stop_price, "stop_loss")
                 self.capital += self.current_position.pnl
                 self.trades.append(self.current_position)
@@ -114,6 +115,7 @@ class Backtester:
             # Take profit
             if high > self.current_position.entry_price * (1 + self.take_profit_percent / 100):
                 tp_price = self.current_position.entry_price * (1 + self.take_profit_percent / 100)
+                logger.info(f"✅ TAKE PROFIT triggered at candle {index}: Entry={self.current_position.entry_price:.2f}, TP={tp_price:.2f}, High={high:.2f}")
                 self.current_position.close(index, tp_price, "take_profit")
                 self.capital += self.current_position.pnl
                 self.trades.append(self.current_position)
@@ -124,6 +126,7 @@ class Backtester:
             # Stop loss (price goes up)
             if high > self.current_position.entry_price * (1 + self.stop_loss_percent / 100):
                 stop_price = self.current_position.entry_price * (1 + self.stop_loss_percent / 100)
+                logger.warning(f"🛑 STOP LOSS triggered at candle {index}: Entry={self.current_position.entry_price:.2f}, Stop={stop_price:.2f}, High={high:.2f}")
                 self.current_position.close(index, stop_price, "stop_loss")
                 self.capital += self.current_position.pnl
                 self.trades.append(self.current_position)
@@ -133,6 +136,7 @@ class Backtester:
             # Take profit (price goes down)
             if low < self.current_position.entry_price * (1 - self.take_profit_percent / 100):
                 tp_price = self.current_position.entry_price * (1 - self.take_profit_percent / 100)
+                logger.info(f"✅ TAKE PROFIT triggered at candle {index}: Entry={self.current_position.entry_price:.2f}, TP={tp_price:.2f}, Low={low:.2f}")
                 self.current_position.close(index, tp_price, "take_profit")
                 self.capital += self.current_position.pnl
                 self.trades.append(self.current_position)
@@ -206,7 +210,7 @@ class Backtester:
         results = self.get_results()
         
         print(f"""
-╔═══════════════════════════════��════════════════════════╗
+╔════════════════════════════════════════════════════════╗
 ║         ELLIOTT WAVE BOT - BACKTEST RESULTS            ║
 ╠════════════════════════════════════════════════════════╣
 ║ Initial Capital:        ${results['initial_capital']:>10,.2f}
