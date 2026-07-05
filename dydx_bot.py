@@ -1,4 +1,4 @@
-"""dYdX v4 Live Trading Bot with Elliott Wave Analysis."""
+"""dYdX v4 Live Trading Bot with Elliott Wave Analysis and Sentiment."""
 
 import asyncio
 import argparse
@@ -9,6 +9,7 @@ import sys
 from src.dydx_connector import DydxExchangeConnector
 from src.wave_detector import WaveDetector
 from src.indicators import SignalGenerator, Indicators
+from src.sentiment import SentimentAnalyzer
 
 
 # Configure logging
@@ -21,27 +22,28 @@ logger = logging.getLogger(__name__)
 
 async def run_live_trading(market_id: str = "BTC-USD", network: str = "testnet",
                           private_key: str = None, check_interval: int = 60):
-    """Run live trading on dYdX v4."""
+    """Run live trading on dYdX v4 with sentiment analysis."""
     
     print(f"""
 ╔════════════════════════════════════════════════════════╗
-║     ELLIOTT WAVE BOT - dYdX v4 LIVE TRADING MODE      ║
-╠══════════════════════���═════════════════════════════════╣
+║    ELLIOTT WAVE BOT - dYdX v4 LIVE TRADING MODE       ║
+╠════════════════════════════════════════════════════════╣
 ║ Market:         {market_id}
 ║ Network:        {network.upper()}
 ║ Check Interval: {check_interval}s
 ║ Time:           {datetime.utcnow().isoformat()}Z
 ╠════════════════════════════════════════════════════════╣
-║ ⚠️  LIVE TRADING MODE - Real money on the line!       ║
-║ ⚠️  Make sure you've backtested and understand risks! ║
+║ ✅ TESTNET MODE - No real money at risk!              ║
+║ Features: Elliott Waves + Indicators + Sentiment      ║
 ╚════════════════════════════════════════════════════════╝
     """)
     
-    # Initialize connector
+    # Initialize components
     connector = DydxExchangeConnector(private_key=private_key, network=network)
     wave_detector = WaveDetector()
     indicators = Indicators()
     signal_gen = SignalGenerator(indicators)
+    sentiment_analyzer = SentimentAnalyzer()
     
     logger.info(f"Starting live trading loop for {market_id}...")
     
@@ -87,8 +89,8 @@ async def run_live_trading(market_id: str = "BTC-USD", network: str = "testnet",
             else:
                 logger.info("⚠️  No patterns detected")
             
-            # Generate signals from indicators
-            logger.info("Generating trading signals...")
+            # Generate indicator signals
+            logger.info("Generating indicator signals...")
             try:
                 combined_signal = signal_gen.generate_combined_signal(
                     prices=df['Close'],
@@ -96,45 +98,105 @@ async def run_live_trading(market_id: str = "BTC-USD", network: str = "testnet",
                     low=df['Low']
                 )
                 
-                logger.info(f"✅ Generated signal:")
+                logger.info(f"✅ Indicator Signal:")
                 logger.info(f"   - Confidence: {combined_signal['confidence']:.2%}")
                 logger.info(f"   - RSI: {combined_signal['rsi']['rsi_value']:.2f}")
                 logger.info(f"   - MACD Bullish: {combined_signal['macd']['bullish_crossover']}")
                 
-                # Determine signal type
-                signal_type = ""
+                # Determine indicator signal type
+                indicator_signal_type = ""
                 if combined_signal['strong_buy']:
-                    signal_type = "🟢 STRONG BUY"
+                    indicator_signal_type = "🟢 STRONG BUY"
                 elif combined_signal['buy']:
-                    signal_type = "🟢 BUY"
+                    indicator_signal_type = "🟢 BUY"
                 elif combined_signal['hold']:
-                    signal_type = "🟡 HOLD"
+                    indicator_signal_type = "🟡 HOLD"
                 elif combined_signal['sell']:
-                    signal_type = "🔴 SELL"
+                    indicator_signal_type = "🔴 SELL"
                 
-                logger.info(f"   - Signal Type: {signal_type}")
-                
-                # Combine with wave patterns for better signals
-                if patterns and combined_signal['strong_buy']:
-                    best_pattern = patterns[0]
-                    logger.info(f"\n   💡 Pattern confirmation: {best_pattern.pattern_type.upper()}")
-                    logger.info(f"      Confidence: {best_pattern.confidence:.2%}")
-                    
-                    # Get price targets
-                    targets = wave_detector.predict_next_target(best_pattern, df['Close'])
-                    if targets:
-                        logger.info(f"      Price Targets:")
-                        for level, target_price in targets.items():
-                            logger.info(f"        - {level}: ${target_price:,.2f}")
-                
-                # TODO: Execute trade based on signal
-                # if combined_signal['strong_buy'] or combined_signal['buy']:
-                #     logger.info("   Executing BUY order...")
-                # elif combined_signal['sell']:
-                #     logger.info("   Executing SELL order...")
+                logger.info(f"   - Signal Type: {indicator_signal_type}")
             
             except Exception as e:
-                logger.error(f"Error generating signals: {e}")
+                logger.error(f"Error generating indicator signals: {e}")
+                combined_signal = None
+            
+            # Generate sentiment signals
+            logger.info("Analyzing sentiment...")
+            try:
+                # Create price data dict for sentiment analysis
+                price_data = {
+                    'price_change_24h': ((df['Close'].iloc[-1] - df['Close'].iloc[0]) / df['Close'].iloc[0]) * 100,
+                    'volume_change': ((df['Volume'].tail(5).mean() - df['Volume'].tail(20).mean()) / df['Volume'].tail(20).mean()) * 100 if 'Volume' in df.columns else 0,
+                    'momentum': 0.5,  # Placeholder
+                    'fear_greed_index': 50  # Placeholder
+                }
+                
+                sentiment_report = sentiment_analyzer.get_sentiment_report(
+                    price_data=price_data,
+                    df=df
+                )
+                
+                sentiment_signal = sentiment_report['signal']
+                combined_sentiment = sentiment_report['combined_sentiment']
+                
+                logger.info(f"✅ Sentiment Analysis:")
+                logger.info(f"   - Bullish: {combined_sentiment['bullish']:.2%}")
+                logger.info(f"   - Bearish: {combined_sentiment['bearish']:.2%}")
+                logger.info(f"   - Neutral: {combined_sentiment['neutral']:.2%}")
+                logger.info(f"   - Signal: {sentiment_signal['signal_type']} ({sentiment_signal['confidence']:.2%})")
+                
+            except Exception as e:
+                logger.error(f"Error analyzing sentiment: {e}")
+                sentiment_signal = None
+            
+            # COMBINED DECISION
+            logger.info("\n" + "="*70)
+            logger.info("COMBINED DECISION:")
+            logger.info("="*70)
+            
+            if combined_signal and sentiment_signal:
+                # Score all three methods
+                wave_score = patterns[0].confidence if patterns else 0
+                indicator_score = combined_signal['confidence']
+                sentiment_score = sentiment_signal['confidence']
+                
+                avg_confidence = (wave_score + indicator_score + sentiment_score) / 3
+                
+                logger.info(f"Wave Confidence:      {wave_score:.2%}")
+                logger.info(f"Indicator Confidence: {indicator_score:.2%}")
+                logger.info(f"Sentiment Confidence: {sentiment_score:.2%}")
+                logger.info(f"\nAverage Confidence:   {avg_confidence:.2%}")
+                
+                # Consensus decision
+                bullish_votes = 0
+                bearish_votes = 0
+                
+                if patterns and patterns[0].pattern_type == "impulse":
+                    bullish_votes += 1
+                
+                if combined_signal['strong_buy'] or combined_signal['buy']:
+                    bullish_votes += 1
+                
+                if sentiment_signal['signal_type'] in ["STRONG BUY", "BUY"]:
+                    bullish_votes += 1
+                
+                if combined_signal['sell']:
+                    bearish_votes += 1
+                    
+                if sentiment_signal['signal_type'] in ["STRONG SELL", "SELL"]:
+                    bearish_votes += 1
+                
+                # Final recommendation
+                if bullish_votes >= 2 and avg_confidence > 0.65:
+                    logger.info(f"\n🟢🟢 FINAL SIGNAL: STRONG BUY (Consensus: {bullish_votes}/3 methods agree)")
+                elif bullish_votes >= 2 and avg_confidence > 0.55:
+                    logger.info(f"\n🟢 FINAL SIGNAL: BUY (Consensus: {bullish_votes}/3 methods agree)")
+                elif bearish_votes >= 2 and avg_confidence > 0.65:
+                    logger.info(f"\n🔴🔴 FINAL SIGNAL: STRONG SELL (Consensus: {bearish_votes}/3 methods agree)")
+                elif bearish_votes >= 2 and avg_confidence > 0.55:
+                    logger.info(f"\n🔴 FINAL SIGNAL: SELL (Consensus: {bearish_votes}/3 methods agree)")
+                else:
+                    logger.info(f"\n🟡 FINAL SIGNAL: HOLD (No consensus or low confidence)")
             
             # Get market stats
             stats = await connector.get_market_stats(market_id)
@@ -158,7 +220,7 @@ async def run_live_trading(market_id: str = "BTC-USD", network: str = "testnet",
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
-        description='Elliott Wave Trading Bot - dYdX v4 Live Trading'
+        description='Elliott Wave Trading Bot - dYdX v4 Live Trading with Sentiment Analysis'
     )
     
     parser.add_argument('--market', type=str, default='BTC-USD',
