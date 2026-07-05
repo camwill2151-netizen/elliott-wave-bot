@@ -1,0 +1,75 @@
+# Elliott Wave Bot Configuration
+
+trading:
+  symbol: "BTCUSDT"
+  base_symbol: "BTC"
+  quote_symbol: "USDT"
+  timeframe: "1h"  # 1h, 4h, 1d, etc.
+  update_interval: 3600  # seconds
+
+# Risk Management
+risk_management:
+  stop_loss_percent: 2.0
+  take_profit_percent: 5.0
+  max_position_size: 0.05  # 5% of capital per trade
+  max_concurrent_trades: 2
+
+# Wave Detection Parameters
+wave_detection:
+  min_wave_length: 5  # Minimum candles for a wave
+  extrema_order: 5    # Order parameter for finding peaks/troughs
+  confirmation_threshold: 0.75  # 0-1, higher = stricter
+  use_fibonacci: true
+  
+  # Wave validation rules
+  wave_ratios:
+    wave_3_to_1: [1.0, 2.5]       # Wave 3 should be 1-2.5x Wave 1
+    wave_5_to_1: [0.5, 1.0]       # Wave 5 should be 0.5-1.0x Wave 1
+    wave_4_pullback: [0.25, 0.75] # Wave 4 retracement of Wave 3
+
+# Indicators & Confirmation
+indicators:
+  rsi:
+    enabled: true
+    period: 14
+    overbought: 70
+    oversold: 30
+  
+  macd:
+    enabled: true
+    fast: 12
+    slow: 26
+    signal: 9
+  
+  fibonacci:
+    enabled: true
+    levels: [0.236, 0.382, 0.5, 0.618, 0.786]
+
+# Backtesting
+backtest:
+  enabled: true
+  start_date: "2023-01-01"
+  end_date: "2024-01-01"
+  initial_capital: 10000
+  commission: 0.001  # 0.1%
+  slippage: 0.002   # 0.2%
+
+# Exchange API
+exchange:
+  name: "binance"
+  api_key: ""  # Set via environment variable
+  api_secret: ""  # Set via environment variable
+  sandbox: true  # Use testnet
+
+# Logging
+logging:
+  level: "INFO"
+  file: "logs/bot.log"
+  console: true
+
+# Notifications
+notifications:
+  enabled: false
+  telegram:
+    token: ""
+    chat_id: ""
