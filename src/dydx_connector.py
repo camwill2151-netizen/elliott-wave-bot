@@ -9,7 +9,6 @@ import pandas as pd
 import aiohttp
 
 # Optional: dYdX v4 client imports for advanced wallet features
-# Most users won't need these - the REST API works fine
 try:
     from cosmpy.aerial.client import LedgerClient
     from cosmpy.aerial.wallet import LocalWallet
@@ -17,7 +16,6 @@ try:
     HAS_COSMPY = True
 except ImportError:
     HAS_COSMPY = False
-    print("Note: For wallet features, install cosmpy with: pip install cosmpy")
 
 
 class DydxIndexerClient:
@@ -28,7 +26,7 @@ class DydxIndexerClient:
         Initialize dYdX Indexer client.
         
         Args:
-            indexer_url: Base URL for dYdX indexer (mainnet or testnet)
+            indexer_url: Base URL for dYdX indexer
         """
         self.indexer_url = indexer_url.rstrip('/')
         self.logger = logging.getLogger(__name__)
@@ -45,21 +43,15 @@ class DydxIndexerClient:
             await self.session.close()
     
     async def get_markets(self) -> Dict:
-        """
-        Get all perpetual markets.
-        
-        Returns:
-            Dictionary of markets data
-        """
+        """Get all perpetual markets."""
         try:
             url = f"{self.indexer_url}/v4/perpetualMarkets"
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
                     if response.status == 200:
                         return await response.json()
-                    else:
-                        self.logger.error(f"HTTP {response.status}: {await response.text()}")
-                        return {}
+                    self.logger.error(f"HTTP {response.status}: {await response.text()}")
+                    return {}
         except Exception as e:
             self.logger.error(f"Error fetching markets: {e}")
             return {}
@@ -78,170 +70,116 @@ class DydxIndexerClient:
             DataFrame with OHLCV data
         """
         try:
-            # dYdX v4 API endpoint format
-            url = f"{self.indexer_url}/v4/candles"
+            # Correct endpoint: /v4/perpetualMarkets/{market_id}/candles
+            url = f"{self.indexer_url}/v4/perpetualMarkets/{market_id}/candles"
             params = {
-                "market": market_id,
                 "resolution": resolution,
                 "limit": limit
             }
             
-            self.logger.info(f"Fetching candles from: {url} with params: {params}")
+            self.logger.info(f"Fetching from: {url}")
             
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=10)) as response:
                     response_text = await response.text()
                     
                     if response.status != 200:
-                        self.logger.error(f"HTTP {response.status} for {market_id}: {response_text[:200]}")
+                        self.logger.error(f"HTTP {response.status}: {response_text[:200]}")
                         return pd.DataFrame()
                     
                     try:
                         data = json.loads(response_text)
-                    except json.JSONDecodeError as e:
-                        self.logger.error(f"Invalid JSON response: {response_text[:200]}")
+                    except json.JSONDecodeError:
+                        self.logger.error(f"Invalid JSON: {response_text[:200]}")
                         return pd.DataFrame()
             
             if not data or not isinstance(data, dict):
-                self.logger.error(f"Invalid response format: {type(data)}")
+                self.logger.error(f"Invalid response type: {type(data)}")
                 return pd.DataFrame()
             
-            # Try different possible response formats
-            candles = data.get("candles") or data.get("data") or data
-            
-            if isinstance(candles, dict) and "candles" in candles:
-                candles = candles["candles"]
+            # Extract candles from response
+            candles = data.get("candles") or data
             
             if not isinstance(candles, list):
-                self.logger.error(f"No candles list in response. Keys: {data.keys() if isinstance(data, dict) else 'N/A'}")
+                self.logger.error(f"Expected list, got {type(candles)}")
                 return pd.DataFrame()
             
             if not candles:
-                self.logger.warning(f"No candles returned for {market_id}")
+                self.logger.warning(f"No candles for {market_id}")
                 return pd.DataFrame()
             
-            self.logger.info(f"Got {len(candles)} candles for {market_id}")
+            self.logger.info(f"✅ Got {len(candles)} candles for {market_id}")
             
             df = pd.DataFrame(candles)
             
-            # Find and rename timestamp column (could be startedAt, time, timestamp, etc)
-            time_col = None
-            for col in ["startedAt", "time", "timestamp", "Time"]:
+            # Handle timestamp column
+            for col in ["startedAt", "time", "timestamp"]:
                 if col in df.columns:
-                    time_col = col
+                    df[col] = pd.to_datetime(df[col])
+                    df.rename(columns={col: "Time"}, inplace=True)
+                    df.set_index("Time", inplace=True)
                     break
             
-            if time_col:
-                df[time_col] = pd.to_datetime(df[time_col])
-                df.rename(columns={time_col: "Time"}, inplace=True)
-                df.set_index("Time", inplace=True)
-            
-            # Convert price/size to float - handle various naming conventions
-            price_cols = {
-                "open": "Open", "Open": "Open",
-                "high": "High", "High": "High",
-                "low": "Low", "Low": "Low",
-                "close": "Close", "Close": "Close",
-                "baseTokenVolume": "Volume", "volume": "Volume", "Volume": "Volume"
+            # Standardize column names
+            column_mapping = {
+                "open": "Open", "high": "High", "low": "Low", 
+                "close": "Close", "baseTokenVolume": "Volume"
             }
             
-            for old_col, new_col in price_cols.items():
-                if old_col in df.columns:
-                    df[old_col] = pd.to_numeric(df[old_col], errors='coerce')
-                    if old_col != new_col:
-                        df.rename(columns={old_col: new_col}, inplace=True)
+            for old, new in column_mapping.items():
+                if old in df.columns:
+                    df[old] = pd.to_numeric(df[old], errors='coerce')
+                    df.rename(columns={old: new}, inplace=True)
             
-            # Only return if we have the required columns
-            required_cols = ["Open", "High", "Low", "Close"]
-            available_cols = [col for col in required_cols if col in df.columns]
-            
-            if len(available_cols) < 4:
-                self.logger.error(f"Missing OHLC columns. Available: {df.columns.tolist()}")
-                return pd.DataFrame()
-            
-            # Add Volume if available
-            if "Volume" in df.columns:
-                available_cols.append("Volume")
-            
-            return df[available_cols]
+            # Return OHLCV
+            cols = [c for c in ["Open", "High", "Low", "Close", "Volume"] if c in df.columns]
+            return df[cols] if cols else pd.DataFrame()
         
         except Exception as e:
-            self.logger.error(f"Error fetching candles for {market_id}: {e}")
+            self.logger.error(f"Error fetching candles: {e}")
             import traceback
             traceback.print_exc()
             return pd.DataFrame()
     
     async def get_market_orderbook(self, market_id: str) -> Dict:
-        """
-        Get current orderbook for a market.
-        
-        Args:
-            market_id: Market identifier
-            
-        Returns:
-            Orderbook data (bids, asks)
-        """
+        """Get current orderbook for a market."""
         try:
-            url = f"{self.indexer_url}/v4/orderbooks"
-            params = {"market": market_id}
-            
+            url = f"{self.indexer_url}/v4/perpetualMarkets/{market_id}/orderbook"
             async with aiohttp.ClientSession() as session:
-                async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
                     if response.status == 200:
                         return await response.json()
-                    return {}
-        
+            return {}
         except Exception as e:
-            self.logger.error(f"Error fetching orderbook for {market_id}: {e}")
+            self.logger.error(f"Error fetching orderbook: {e}")
             return {}
     
     async def get_market_trades(self, market_id: str, limit: int = 100) -> List[Dict]:
-        """
-        Get recent trades for a market.
-        
-        Args:
-            market_id: Market identifier
-            limit: Number of trades to fetch
-            
-        Returns:
-            List of recent trades
-        """
+        """Get recent trades for a market."""
         try:
-            url = f"{self.indexer_url}/v4/trades"
-            params = {"market": market_id, "limit": limit}
-            
+            url = f"{self.indexer_url}/v4/perpetualMarkets/{market_id}/trades"
+            params = {"limit": limit}
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=10)) as response:
                     if response.status == 200:
                         data = await response.json()
                         return data.get("trades", [])
-                    return []
-        
+            return []
         except Exception as e:
-            self.logger.error(f"Error fetching trades for {market_id}: {e}")
+            self.logger.error(f"Error fetching trades: {e}")
             return []
     
     async def get_market_funding(self, market_id: str) -> Dict:
-        """
-        Get funding rate data for a market.
-        
-        Args:
-            market_id: Market identifier
-            
-        Returns:
-            Funding rate information
-        """
+        """Get funding rate data for a market."""
         try:
-            url = f"{self.indexer_url}/v4/perpetualMarkets/{market_id}/fundingRate"
-            
+            url = f"{self.indexer_url}/v4/perpetualMarkets/{market_id}/historicalFunding"
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
                     if response.status == 200:
                         return await response.json()
-                    return {}
-        
+            return {}
         except Exception as e:
-            self.logger.error(f"Error fetching funding for {market_id}: {e}")
+            self.logger.error(f"Error fetching funding: {e}")
             return {}
 
 
@@ -277,7 +215,6 @@ class DydxChainClient:
             self.private_key_obj = PrivateKey(bytes.fromhex(private_key))
             self.wallet = LocalWallet(self.private_key_obj)
             self.account_address = self.wallet.public_key().to_public_key().to_account()
-            
             self.logger.info(f"Initialized wallet: {self.account_address}")
         except Exception as e:
             self.logger.error(f"Error initializing wallet: {e}")
@@ -291,18 +228,13 @@ class DydxChainClient:
                 async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
                     if response.status == 200:
                         return await response.json()
-                    return {}
+            return {}
         except Exception as e:
             self.logger.error(f"Error fetching account: {e}")
             return {}
     
     async def get_balances(self) -> Dict[str, float]:
-        """
-        Get account balances.
-        
-        Returns:
-            Dictionary of asset -> balance
-        """
+        """Get account balances."""
         try:
             async with aiohttp.ClientSession() as session:
                 url = f"{self.node_url}/cosmos/bank/v1beta1/balances/{self.account_address}"
@@ -314,33 +246,24 @@ class DydxChainClient:
             balances = {}
             for balance in data.get("balances", []):
                 denom = balance["denom"]
-                amount = float(balance["amount"]) / 1e18  # Convert from smallest unit
+                amount = float(balance["amount"]) / 1e18
                 balances[denom] = amount
-            
             return balances
-        
         except Exception as e:
             self.logger.error(f"Error fetching balances: {e}")
             return {}
     
     async def get_positions(self) -> List[Dict]:
-        """
-        Get open perpetual positions.
-        
-        Returns:
-            List of position dictionaries
-        """
+        """Get open perpetual positions."""
         try:
             async with aiohttp.ClientSession() as session:
                 url = f"{self.node_url}/dydxprotocol/perpetuals/positions"
                 params = {"address": self.account_address}
-                
                 async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=10)) as response:
                     if response.status == 200:
                         data = await response.json()
                         return data.get("positions", [])
-                    return []
-        
+            return []
         except Exception as e:
             self.logger.error(f"Error fetching positions: {e}")
             return []
@@ -348,39 +271,16 @@ class DydxChainClient:
     def place_order(self, market_id: str, side: str, size: float, 
                    price: float, leverage: float = 1.0,
                    order_type: str = "LIMIT") -> Optional[Dict]:
-        """
-        Place an order (requires wallet signing).
-        
-        Note: Full implementation requires more complex transaction building.
-        This is a placeholder showing the structure.
-        
-        Args:
-            market_id: Market to trade
-            side: "BUY" or "SELL"
-            size: Order size
-            price: Order price
-            leverage: Leverage multiplier (1-20)
-            order_type: "LIMIT" or "MARKET"
-            
-        Returns:
-            Order details if successful
-        """
-        self.logger.warning("Place order requires full transaction signing implementation")
+        """Place an order (placeholder)."""
         self.logger.info(f"Order: {side} {size} {market_id} @ {price} (Leverage: {leverage}x)")
         return None
 
 
 class DydxExchangeConnector:
-    """High-level connector for dYdX v4 with both indexer and chain clients."""
+    """High-level connector for dYdX v4."""
     
     def __init__(self, private_key: Optional[str] = None, network: str = "mainnet"):
-        """
-        Initialize dYdX exchange connector.
-        
-        Args:
-            private_key: Private key for trading (optional, for read-only set to None)
-            network: "mainnet" or "testnet"
-        """
+        """Initialize dYdX exchange connector."""
         self.logger = logging.getLogger(__name__)
         self.indexer = DydxIndexerClient()
         self.chain = None
@@ -397,19 +297,15 @@ class DydxExchangeConnector:
     async def get_current_price(self, market_id: str) -> float:
         """Get the current price of a market."""
         candles = await self.indexer.get_market_candles(market_id, resolution="1MIN", limit=1)
-        
         if candles.empty:
             return None
-        
         return float(candles["Close"].iloc[-1])
     
     async def get_funding_rate(self, market_id: str) -> Optional[float]:
         """Get current funding rate."""
         funding_data = await self.indexer.get_market_funding(market_id)
-        
         if funding_data and isinstance(funding_data, dict) and "fundingRate" in funding_data:
             return float(funding_data["fundingRate"]["fundingRate"])
-        
         return None
     
     def get_supported_markets(self) -> List[str]:
